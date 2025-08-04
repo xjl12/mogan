@@ -11,9 +11,11 @@
 
 #include "mupdf_picture.hpp"
 
+#include "editor.hpp"
 #include "effect.hpp"
 #include "file.hpp"
 #include "image_files.hpp"
+#include "new_view.hpp"
 #include "tm_url.hpp"
 
 /******************************************************************************
@@ -167,6 +169,28 @@ picture_renderer (picture p, double zoomf) {
  * Loading pictures
  ******************************************************************************/
 
+fz_pixmap*
+mupdf_load_pdf_image (url u, fz_matrix scale) {
+  fz_context*   ctx= mupdf_context ();
+  c_string      path (concretize (u));
+  pdf_document* doc = NULL;
+  pdf_page*     page= NULL;
+  fz_pixmap*    pix = NULL;
+  fz_try (ctx) {
+    doc           = pdf_open_document (ctx, path);
+    int page_count= pdf_count_pages (ctx, doc);
+    if (page_count > 0) {
+      page= pdf_load_page (ctx, doc, 0);
+      pix = pdf_new_pixmap_from_page_with_usage (
+          ctx, page, scale, fz_device_rgb (ctx), 0, "View", FZ_TRIM_BOX);
+    }
+  }
+  fz_catch (ctx) { fz_report_error (ctx); }
+  pdf_drop_page (ctx, page);
+  pdf_drop_document (ctx, doc);
+  return pix;
+}
+
 fz_image*
 mupdf_load_image (url u) {
   fz_context* ctx= mupdf_context ();
@@ -216,22 +240,11 @@ mupdf_load_image (url u) {
     im            = fz_new_image_from_pixmap (ctx, pix, NULL);
   }
   else if (suf == "pdf") {
-    pdf_document* doc = NULL;
-    pdf_page*     page= NULL;
-    fz_pixmap*    pix = NULL;
-    fz_try (ctx) {
-      doc           = pdf_open_document (ctx, path);
-      int page_count= pdf_count_pages (ctx, doc);
-      if (page_count > 0) {
-        page= pdf_load_page (ctx, doc, 0);
-        pix = pdf_new_pixmap_from_page_with_usage (
-            ctx, page, ctm, fz_device_rgb (ctx), 0, "View", FZ_TRIM_BOX);
-        im= fz_new_image_from_pixmap (ctx, pix, NULL);
-      }
+    fz_pixmap* pix= mupdf_load_pdf_image (u, ctm);
+    if (pix != NULL) {
+      im= fz_new_image_from_pixmap (mupdf_context (), pix, NULL);
+      fz_drop_pixmap (mupdf_context (), pix);
     }
-    fz_catch (ctx) { fz_report_error (ctx); }
-    fz_drop_pixmap (ctx, pix);
-    pdf_drop_document (ctx, doc);
   }
   else {
     // Othre format.
@@ -285,6 +298,60 @@ mupdf_load_pixmap (url u, int w, int h, tree eff, SI pixel) {
     pix= tpix;
   }
   return pix;
+}
+
+/******************************************************************************
+ * Image size
+ ******************************************************************************/
+
+bool
+mupdf_normal_image_size (url image, int& w, int& h) { // w, h in points
+  if (DEBUG_CONVERT) debug_convert << "mupdf_normal_image_size :" << LF;
+  fz_context* ctx= mupdf_context ();
+  fz_image*   im = NULL;
+  c_string    path (concretize (image));
+  fz_try (ctx) im= fz_new_image_from_file (ctx, path);
+  fz_catch (ctx) fz_report_error (ctx);
+  if (im == NULL) {
+    convert_error << "Cannot read image file '" << image << "'"
+                  << " in mupdf_normal_image_size" << LF;
+    w= 35;
+    h= 35;
+    return false;
+  }
+  else {
+    SI pt= get_current_editor ()->as_length ("1pt");
+    SI px= get_current_editor ()->as_length ("1px");
+    w    = (int) im->w * px * 1.0 / pt;
+    h    = (int) im->h * px * 1.0 / pt;
+    fz_drop_image (ctx, im);
+    if (DEBUG_CONVERT)
+      debug_convert << "mupdf_normal_image_size (pt): " << w << " x " << h
+                    << LF;
+    return true;
+  }
+}
+
+void
+mupdf_pdf_image_size (url image, int& w, int& h) {
+  if (DEBUG_CONVERT) debug_convert << "mupdf_pdf_image_size :" << LF;
+  fz_context* ctx= mupdf_context ();
+  fz_pixmap*  im = mupdf_load_pdf_image (image, fz_scale (1.0, 1.0));
+  if (im == NULL) {
+    convert_error << "Cannot read image file '" << image << "'"
+                  << " in mupdf_pdf_image_size" << LF;
+    w= 35;
+    h= 35;
+  }
+  else {
+    SI pt= get_current_editor ()->as_length ("1pt");
+    SI px= get_current_editor ()->as_length ("1px");
+    w    = (int) im->w * px * 1.0 / pt;
+    h    = (int) im->h * px * 1.0 / pt;
+    fz_drop_pixmap (ctx, im);
+    if (DEBUG_CONVERT)
+      debug_convert << "mupdf_pdf_image_size (pt): " << w << " x " << h << LF;
+  }
 }
 
 #ifdef USE_MUPDF_RENDERER
