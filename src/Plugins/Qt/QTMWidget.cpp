@@ -602,10 +602,12 @@ QTMWidget::dropEvent (QDropEvent* event) {
         name= "/" * locase_all (name (0, 1)) * name (2, N (name));
 #endif
       string w, h;
-#ifdef USE_MUPDF_RENDERER
-      if (mupdf_pretty_image_size (url_system (orig_name), w, h)) {
-#else
       string extension= suffix (name);
+#ifdef USE_MUPDF_RENDERER
+      if (extension == "pdf" || extension == "jpg" || extension == "tif" ||
+          fz_lookup_image_type (c_string (extension)) != FZ_IMAGE_UNKNOWN) {
+        mupdf_pretty_image_size (url_system (orig_name), w, h);
+#else
       if ((extension == "eps") || (extension == "ps") ||
 #if (QT_VERSION >= 0x050000)
           (extension == "svg") ||
