@@ -332,7 +332,7 @@ mupdf_normal_image_size (url image, int& w, int& h) { // w, h in points
   }
 }
 
-void
+bool
 mupdf_pdf_image_size (url image, int& w, int& h) {
   if (DEBUG_CONVERT) debug_convert << "mupdf_pdf_image_size :" << LF;
   fz_context* ctx= mupdf_context ();
@@ -342,6 +342,7 @@ mupdf_pdf_image_size (url image, int& w, int& h) {
                   << " in mupdf_pdf_image_size" << LF;
     w= 35;
     h= 35;
+    return false;
   }
   else {
     SI pt= get_current_editor ()->as_length ("1pt");
@@ -352,6 +353,21 @@ mupdf_pdf_image_size (url image, int& w, int& h) {
     if (DEBUG_CONVERT)
       debug_convert << "mupdf_pdf_image_size (pt): " << w << " x " << h << LF;
   }
+  return true;
+}
+
+bool
+mupdf_pretty_image_size (url image, string& w, string& h) {
+  int  ww, hh;
+  bool r;
+  if (suffix (image) == "pdf") {
+    r= mupdf_pdf_image_size (image, ww, hh);
+  }
+  else {
+    r= mupdf_normal_image_size (image, ww, hh);
+  }
+  qt_pretty_image_size (ww, hh, w, h);
+  return r;
 }
 
 #ifdef USE_MUPDF_RENDERER

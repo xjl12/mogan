@@ -78,6 +78,7 @@ picture as_mupdf_picture (picture pic);
 fz_image*  mupdf_load_image (url u);
 fz_pixmap* mupdf_load_pixmap (url u, int w, int h, tree eff, SI pixel);
 bool       mupdf_normal_image_size (url image, int& w, int& h);
-void       mupdf_pdf_image_size (url image, int& w, int& h);
+bool       mupdf_pdf_image_size (url image, int& w, int& h);
+bool       mupdf_pretty_image_size (url image, string& w, string& h);
 
 #endif // defined MUPDF_PICTURE_HPP

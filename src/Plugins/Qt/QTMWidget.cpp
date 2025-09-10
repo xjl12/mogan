@@ -21,6 +21,9 @@
 #include "qt_utilities.hpp"
 #include "scheme.hpp"
 #include "sys_utils.hpp"
+#ifdef USE_MUPDF_RENDERER
+#include "mupdf_picture.hpp"
+#endif
 
 #include <QApplication>
 #include <QDebug>
@@ -598,6 +601,10 @@ QTMWidget::dropEvent (QDropEvent* event) {
       if (N (name) >= 2 && is_alpha (name[0]) && name[1] == ':')
         name= "/" * locase_all (name (0, 1)) * name (2, N (name));
 #endif
+      string w, h;
+#ifdef USE_MUPDF_RENDERER
+      if (mupdf_pretty_image_size (url_system (orig_name), w, h)) {
+#else
       string extension= suffix (name);
       if ((extension == "eps") || (extension == "ps") ||
 #if (QT_VERSION >= 0x050000)
