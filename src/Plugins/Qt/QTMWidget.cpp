@@ -604,9 +604,10 @@ QTMWidget::dropEvent (QDropEvent* event) {
       string w, h;
       string extension= suffix (name);
 #ifdef USE_MUPDF_RENDERER
-      if (extension == "pdf" || extension == "jpg" || extension == "tif" ||
-          fz_lookup_image_type (c_string (extension)) != FZ_IMAGE_UNKNOWN) {
-        mupdf_pretty_image_size (url_system (orig_name), w, h);
+      if (extension == "pdf" || extension == "jpg" ||
+          fz_lookup_image_type (c_string (extension)) != FZ_IMAGE_UNKNOWN ||
+          extension == "tif" || extension == "eps" || extension == "ps") {
+        mupdf_pretty_image_size (url_system (orig_name), w, h, extension);
 #else
       if ((extension == "eps") || (extension == "ps") ||
 #if (QT_VERSION >= 0x050000)

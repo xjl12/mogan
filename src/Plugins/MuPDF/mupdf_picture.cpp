@@ -357,10 +357,15 @@ mupdf_pdf_image_size (url image, int& w, int& h) {
 }
 
 bool
-mupdf_pretty_image_size (url image, string& w, string& h) {
+mupdf_pretty_image_size (url image, string& w, string& h, string extension) {
   int  ww, hh;
   bool r;
-  if (suffix (image) == "pdf") {
+  if (extension == "eps" || extension == "ps") {
+    w= "";
+    h= "";
+    return false;
+  }
+  if (extension == "pdf") {
     r= mupdf_pdf_image_size (image, ww, hh);
   }
   else {
