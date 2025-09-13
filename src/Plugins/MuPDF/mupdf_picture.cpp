@@ -170,14 +170,15 @@ picture_renderer (picture p, double zoomf) {
  ******************************************************************************/
 
 fz_pixmap*
-mupdf_load_pdf_image (url u, fz_matrix scale) {
-  fz_context*   ctx= mupdf_context ();
-  c_string      path (concretize (u));
-  pdf_document* doc = NULL;
-  pdf_page*     page= NULL;
-  fz_pixmap*    pix = NULL;
+mupdf_load_pdf_image (fz_buffer* pdf_data, fz_matrix scale) {
+  fz_context*   ctx   = mupdf_context ();
+  pdf_document* doc   = NULL;
+  pdf_page*     page  = NULL;
+  fz_pixmap*    pix   = NULL;
+  fz_stream*    stream= NULL;
   fz_try (ctx) {
-    doc           = pdf_open_document (ctx, path);
+    stream        = fz_open_buffer (ctx, pdf_data);
+    doc           = pdf_open_document_with_stream (ctx, stream);
     int page_count= pdf_count_pages (ctx, doc);
     if (page_count > 0) {
       page= pdf_load_page (ctx, doc, 0);
@@ -188,20 +189,23 @@ mupdf_load_pdf_image (url u, fz_matrix scale) {
   fz_catch (ctx) { fz_report_error (ctx); }
   pdf_drop_page (ctx, page);
   pdf_drop_document (ctx, doc);
+  fz_drop_stream (ctx, stream);
   return pix;
 }
 
 fz_image*
 mupdf_load_image (url u) {
-  fz_context* ctx= mupdf_context ();
-  fz_image*   im = NULL;
-  string      suf= suffix (u);
-  c_string    path (concretize (u));
+  fz_context* ctx   = mupdf_context ();
+  fz_image*   im    = NULL;
+  fz_buffer*  buffer= mupdf_read_from_url (u);
+  if (buffer == NULL) {
+    return NULL;
+  }
+  string suf= suffix (u);
   // Set the zoom to 200% in MuPDF render(144 DPI) when convert vector graphics
   // into pixmap. Test ok in MacOS, with 2x HiDPI enabled(4K screen)
   fz_matrix ctm= fz_scale (2.0, 2.0);
   if (suf == "svg") {
-    fz_buffer*  buffer = fz_read_file (ctx, path);
     fz_xml_doc* xml_doc= NULL;
     fz_xml*     xml    = NULL;
     fz_image*   tmp_im = NULL;
@@ -216,7 +220,6 @@ mupdf_load_image (url u) {
     fz_catch (ctx) { fz_report_error (ctx); }
     fz_drop_xml (ctx, xml);
     fz_drop_xml (ctx, xml_doc);
-    fz_drop_buffer (ctx, buffer);
     fz_drop_image (ctx, tmp_im);
     fz_drop_pixmap (ctx, tmp_pix);
   }
@@ -240,7 +243,7 @@ mupdf_load_image (url u) {
     im            = fz_new_image_from_pixmap (ctx, pix, NULL);
   }
   else if (suf == "pdf") {
-    fz_pixmap* pix= mupdf_load_pdf_image (u, ctm);
+    fz_pixmap* pix= mupdf_load_pdf_image (buffer, ctm);
     if (pix != NULL) {
       im= fz_new_image_from_pixmap (mupdf_context (), pix, NULL);
       fz_drop_pixmap (mupdf_context (), pix);
@@ -248,9 +251,10 @@ mupdf_load_image (url u) {
   }
   else {
     // Othre format.
-    fz_try (ctx) { im= fz_new_image_from_file (ctx, path); }
+    fz_try (ctx) { im= fz_new_image_from_buffer (ctx, buffer); }
     fz_catch (ctx) { fz_report_error (ctx); }
   }
+  fz_drop_buffer (ctx, buffer);
   if (im == NULL) {
     // attempt to convert to png
     url temp= url_temp (".png");
@@ -309,9 +313,12 @@ mupdf_normal_image_size (url image, int& w, int& h) { // w, h in points
   if (DEBUG_CONVERT) debug_convert << "mupdf_normal_image_size :" << LF;
   fz_context* ctx= mupdf_context ();
   fz_image*   im = NULL;
-  c_string    path (concretize (image));
-  fz_try (ctx) im= fz_new_image_from_file (ctx, path);
-  fz_catch (ctx) fz_report_error (ctx);
+  fz_buffer*  buf= mupdf_read_from_url (image);
+  if (buf != NULL) {
+    fz_try (ctx) { im= fz_new_image_from_buffer (ctx, buf); }
+    fz_catch (ctx) fz_report_error (ctx);
+    fz_drop_buffer (ctx, buf);
+  }
   if (im == NULL) {
     convert_error << "Cannot read image file '" << image << "'"
                   << " in mupdf_normal_image_size" << LF;
@@ -336,7 +343,12 @@ bool
 mupdf_pdf_image_size (url image, int& w, int& h) {
   if (DEBUG_CONVERT) debug_convert << "mupdf_pdf_image_size :" << LF;
   fz_context* ctx= mupdf_context ();
-  fz_pixmap*  im = mupdf_load_pdf_image (image, fz_scale (1.0, 1.0));
+  fz_buffer*  buf= mupdf_read_from_url (image);
+  fz_pixmap*  im = NULL;
+  if (buf != NULL) {
+    im= mupdf_load_pdf_image (buf, fz_scale (1.0, 1.0));
+    fz_drop_buffer (ctx, buf);
+  }
   if (im == NULL) {
     convert_error << "Cannot read image file '" << image << "'"
                   << " in mupdf_pdf_image_size" << LF;
@@ -356,23 +368,33 @@ mupdf_pdf_image_size (url image, int& w, int& h) {
   return true;
 }
 
-bool
-mupdf_pretty_image_size (url image, string& w, string& h, string extension) {
-  int  ww, hh;
-  bool r;
-  if (extension == "eps" || extension == "ps") {
-    w= "";
-    h= "";
-    return false;
+string
+mupdf_load_and_parse_image (const char* path, int& w, int& h,
+                            string extension) {
+  fz_context*    ctx= mupdf_context ();
+  fz_buffer*     buf= NULL;
+  unsigned char* data;
+  fz_try (ctx) { buf= fz_read_file (ctx, path); }
+  fz_catch (ctx) {
+    fz_report_error (ctx);
+    buf= fz_new_buffer (ctx, 0);
   }
+  int    len= fz_buffer_storage (ctx, buf, &data);
+  string res (reinterpret_cast<const char*> (data), len);
+  fz_drop_buffer (ctx, buf);
+  url image= url_ramdisc (res) * extension;
   if (extension == "pdf") {
-    r= mupdf_pdf_image_size (image, ww, hh);
+    mupdf_pdf_image_size (image, w, h);
+  }
+  else if (extension == "eps" || extension == "ps") {
+    w= 0;
+    h= 0;
   }
   else {
-    r= mupdf_normal_image_size (image, ww, hh);
+    mupdf_normal_image_size (image, w, h);
   }
-  qt_pretty_image_size (ww, hh, w, h);
-  return r;
+
+  return res;
 }
 
 #ifdef USE_MUPDF_RENDERER
